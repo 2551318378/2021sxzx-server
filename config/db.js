@@ -10,7 +10,6 @@ if(process.env.NODE_ENV === 'dev'){
    url       : 'mongodb://127.0.0.1:27017/sxzx'
   }
 }
-}
 module.exports = {
   MONGO_CONFIG,
   REDIS_CONFIG
