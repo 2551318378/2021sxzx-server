@@ -270,7 +270,9 @@ async function getItems({
             //返回结果
             var dict = {}
             dict.data = items
-            dict.total = await modelItem.find(query).count()
+            let count = await modelItem.aggregate().match(query).count('count')
+            if (count.length <= 0) dict.total = 0
+            else dict.total = count[0].count
             dict.page_size = page_size
             dict.page_num = page_num
             return new SuccessModel({ msg: '查询成功', data: dict })
@@ -780,62 +782,15 @@ async function getItemGuides({
         }
         if (page_size !== null && page_num !== null) {
             var result = {}
-            var tasks = await modelTask
-                .aggregate([
-                    {
-                        $match: query
-                    },
-                    {
-                        $skip: page_size * page_num
-                    },
-                    {
-                        $limit: page_size
-                    },
-                    {
-                        $lookup: {
-                            from: modelUsers.collection.name,
-                            localField: 'creator_id',
-                            foreignField: '_id',
-                            as: 'user'
-                        }
-                    },
-                    {
-                        $lookup: {
-                            from: modelDepartmentMapUsers.collection.name,
-                            localField: 'user.account',
-                            foreignField: 'account',
-                            as: 'department'
-                        }
-                    },
-                    {
-                        $addFields: {
-                            user: { $arrayElemAt: ['$user', 0] },
-                            department: { $arrayElemAt: ['$department', 0] }
-                        }
-                    },
-                    {
-                        $addFields: {
-                            creator: {
-                                id: '$creator_id',
-                                name: '$user.user_name',
-                                department_name: '$department.department_name'
-                            }
-                        }
-                    },
-                    {
-                        $project: { task_status: 1, task_code: 1, task_name: 1, create_time: 1, creator: 1 }
-                    }
-                ])
-            result.data = tasks
-            result.total = await modelTask.find(query).count()
-            result.page_size = page_size
-            result.page_num = page_num
-            return new SuccessModel({ msg: '查询成功', data: result })
-        }
-        var result = await modelTask
-            .aggregate([
+            var tasks = await modelTask.aggregate([
                 {
                     $match: query
+                },
+                {
+                    $skip: page_size * page_num
+                },
+                {
+                    $limit: page_size
                 },
                 {
                     $lookup: {
@@ -872,6 +827,53 @@ async function getItemGuides({
                     $project: { task_status: 1, task_code: 1, task_name: 1, create_time: 1, creator: 1 }
                 }
             ])
+            result.data = tasks
+            let count = await modelTask.aggregate().match(query).count('count')
+            if (count.length <= 0) result.total = 0
+            else result.total = count[0].count
+            result.page_size = page_size
+            result.page_num = page_num
+            return new SuccessModel({ msg: '查询成功', data: result })
+        }
+        var result = await modelTask.aggregate([
+            {
+                $match: query
+            },
+            {
+                $lookup: {
+                    from: modelUsers.collection.name,
+                    localField: 'creator_id',
+                    foreignField: '_id',
+                    as: 'user'
+                }
+            },
+            {
+                $lookup: {
+                    from: modelDepartmentMapUsers.collection.name,
+                    localField: 'user.account',
+                    foreignField: 'account',
+                    as: 'department'
+                }
+            },
+            {
+                $addFields: {
+                    user: { $arrayElemAt: ['$user', 0] },
+                    department: { $arrayElemAt: ['$department', 0] }
+                }
+            },
+            {
+                $addFields: {
+                    creator: {
+                        id: '$creator_id',
+                        name: '$user.user_name',
+                        department_name: '$department.department_name'
+                    }
+                }
+            },
+            {
+                $project: { task_status: 1, task_code: 1, task_name: 1, create_time: 1, creator: 1 }
+            }
+        ])
         return new SuccessModel({ msg: '查询成功', data: result })
     } catch (err) {
         return new ErrorModel({ msg: '查询失败', data: err.message })
@@ -1660,7 +1662,7 @@ async function getChildRegionsByRuleAndRegion({
         //先判断该区划本身是否有匹配的事项
         var res = await modelItem.exists({
             rule_id: rule_id,
-            region_code: region_code
+            region_id: region._id
         })
         //有事项haveItem是1，否则是0
         region._doc.haveItem = 0
@@ -1674,15 +1676,15 @@ async function getChildRegionsByRuleAndRegion({
         for (let i = 0; i < childRegions.length; i++) {
             var value = regionDic[childRegions[i]]
             //遍历区划，检查该区划包括其全部下级区划在内是否存在rule_id对应的事项
-            var regionCodes = []
+            var regionIds = []
             var q = []
             q.push(value._id)
-            regionCodes.push(value.region_code)
+            regionIds.push(value._id)
             while (q.length > 0) {
                 let len = q.length
                 for (let j = 0; j < len; j++) {
                     let id = q.shift()
-                    regionCodes.push(regionDic[id].region_code)
+                    regionIds.push(regionDic[id]._id)
                     let children = regionDic[id].children
                     Array.prototype.push.apply(q, children)
                 }
@@ -1690,7 +1692,7 @@ async function getChildRegionsByRuleAndRegion({
             //找出匹配的事项
             var res = await modelItem.exists({
                 rule_id: rule_id,
-                region_code: { $in: regionCodes }
+                region_id: { $in: regionIds }
             })
             //子区划中有事项的haveItem是1，否则是0
             let r = Object.assign({}, value)
@@ -2047,13 +2049,13 @@ async function changeItemStatus({
         if (user === null) {
             throw new Error('用户不存在')
         }
-        var userRank = await modelUserRank.findOne({ id: user.user_rank }, { _id: 0, __v: 0 })
-        //确认用户可操作事项状态
-        var can_operate = userRank.can_operate
-        if (userRank.can_operate_temp[user_id]) {
-            //针对某个用户修改过权限
-            can_operate = userRank.can_operate_temp[user_id]
-        }
+        // var userRank = await modelUserRank.findOne({ id: user.user_rank }, { _id: 0, __v: 0 })
+        // //确认用户可操作事项状态
+        // var can_operate = userRank.can_operate
+        // if (userRank.can_operate_temp[user_id]) {
+        //     //针对某个用户修改过权限
+        //     can_operate = userRank.can_operate_temp[user_id]
+        // }
         var bulkOps = []
         var itemStatus = await modelItemStatus.find({}, { _id: 0, __v: 0 })
         for (let i = 0, len = items.length; i < len; i++) {
@@ -2084,9 +2086,9 @@ async function changeItemStatus({
                         throw new Error('事项所处状态无法变到指定状态: ' + item_id)
                     }
                 }
-                if (can_operate.includes(status.id) === false) {
-                    throw new Error('该用户无法修改状态为\"' + status.name + '\"的事项')
-                }
+                // if (can_operate.includes(status.id) === false) {
+                //     throw new Error('该用户无法修改状态为\"' + status.name + '\"的事项')
+                // }
                 //加到数组中，后续一起更新
                 bulkOps.push({
                     updateOne: {
@@ -2234,7 +2236,17 @@ async function getCheckJobRule() {
 async function getCheckResult() {
     try {
         var result = await itemService.getCheckResult()
-        return new SuccessModel({ msg: '获取成功', data: result })
+        var array = new Array(3)
+        array[0] = { type: '缺少', guides: [] }
+        array[1] = { type: '新增', guides: [] }
+        array[2] = { type: '不同', guides: [] }
+        var keys = Object.keys(result)
+        for (let i = 0, len = keys.length; i < len; i++) {
+            Array.prototype.push.apply(array[0].guides, result[keys[i]].inRemoteNinLocal)
+            Array.prototype.push.apply(array[1].guides, result[keys[i]].inLocalNinRemote)
+            Array.prototype.push.apply(array[2].guides, result[keys[i]].differences)
+        }
+        return new SuccessModel({ msg: '获取成功', data: array })
     } catch (err) {
         return new ErrorModel({ msg: '获取失败', data: err.message })
     }
