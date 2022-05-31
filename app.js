@@ -7,6 +7,7 @@ const logger = require('morgan');
 
 
 const usersRouter = require('./routes/users');
+const unitRouter = require('./routes/unit');
 const commentRouter = require("./routes/comment")
 const systemLogRouter = require("./routes/systemLog")
 const taskRouter = require("./routes/taskRoutes")
@@ -19,10 +20,10 @@ const sideBarRouter = require('./routes/sideBar');
 const permissionRouter = require('./routes/permission');
 const systemFailureRouter = require('./routes/systemFailure')
 const systemBasicRouter = require('./routes/systemBasic.js')
+const systemBackupRouter=require('./routes/systemBackup')
 const userDepartmentRouter = require('./routes/userDepartment');
 const imageRouter = require('./routes/image');
-const department = require('./model/department');
-const departmentMapUser = require('./model/departmentMapUser');
+
 
 const { validate_jwt } = require('./utils/validateJwt');
 
@@ -62,12 +63,16 @@ app.set('view engine', 'jade');
 // 日志的设置使用
 app.use(logger('dev'));
 const accessLogStream = fs.createWriteStream(path.join(__dirname, 'log/access.log'), { flags: 'a' });
-// app.use(logger('combined', {
-//   stream: accessLogStream
-// }));
 //往日志添加用户信息
-logger.token('id',function getId(req){return req.headers.user_id});
-app.use(logger(':id :remote-addr - :remote-user [:date[iso]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"', {
+logger.token('id',function getId(req){return req.headers.userid});
+logger.token('localDate',function getDate(){
+  var date=new Date(new Date().getTime()+8 * 3600 * 1000);
+  return date.toISOString()
+});
+app.use(logger(':id :remote-addr - :remote-user [:localDate] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"', {
+  skip:function(req,res){
+    return req.headers.userid !=''||req.headers.userid !=null||req.headers.userid !='-'
+  },
   stream: accessLogStream
 }));
 // post请求的参数的获取, express会将解析之后, 转换成对象的post请求参数放到请求对象的body属性中
@@ -83,9 +88,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(validate_jwt);
 */
 
-
 // 处理路由
 app.use('/api', usersRouter);
+app.use('/api', unitRouter);
 app.use('/api', commentRouter);
 app.use('/api', taskRouter)
 app.use('/api', systemLogRouter)
@@ -98,6 +103,7 @@ app.use('/api', roleRouter)
 app.use('/api', permissionRouter)
 app.use('/api', systemFailureRouter)
 app.use('/api', systemBasicRouter)
+app.use('/api', systemBackupRouter)
 app.use('/api', imageRouter)
 app.use('/api', userDepartmentRouter)
 //app.use('/api', verifyRouter)

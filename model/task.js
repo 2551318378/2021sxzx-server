@@ -107,6 +107,34 @@ const taskSchema = new mongoose.Schema({
             materials_name: {
                 type: String,
                 required: true,
+            },
+            origin: {
+                type: Number,
+                required: true
+            },
+            copy: {
+                type: Number,
+                required: true
+            },
+            material_form: {
+                type: String,
+                required: true
+            },
+            page_format: {
+                type: String,
+                required: false
+            },
+            material_necessity: {
+                type: String,
+                required: true
+            },
+            material_type: {
+                type: String,
+                required: true
+            },
+            submissionrequired: {
+                type: String,
+                required: true
             }
         }],
         default: [],
@@ -128,20 +156,6 @@ const taskSchema = new mongoose.Schema({
         required: true,
         ref: 'users'
     }
-    // creator: {      //创建人
-    //     id: {
-    //         type: String,
-    //         required: true
-    //     },
-    //     name: {
-    //         type: String,
-    //         required: true
-    //     },
-    //     department_name: {
-    //         type: String,
-    //         required: true
-    //     }
-    // }
 })
 
 const task = mongoose.model('task', taskSchema, 'tempTasks')
